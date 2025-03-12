@@ -12,23 +12,16 @@ cudnn.deterministic = True
 cudnn.benchmark = True
 import torch.nn.functional as F
 
-def to_dense_tensor(x, device):
-    if hasattr(x, "todense"):  # If it's a sparse matrix
-        x = x.todense()
-    x = x.astype(np.float32)  # Ensure it's float32
-    return torch.tensor(x, dtype=torch.float32, device=device)
 
-def train_STAGATE(adata, hidden_dims=[512, 30], n_epochs=500, lr=0.001, key_added='STAGATE',
-                gradient_clipping=5.,  weight_decay=0.0001, verbose=True, train_adata = [],
+def train_STAGATE(train_adata, adata, hidden_dims=[512, 30], n_epochs=500, lr=0.001, key_added='STAGATE',
+                gradient_clipping=5.,  weight_decay=0.0001, verbose=True, 
                 random_seed=0, save_loss=False, save_reconstrction=False, 
                 device = torch.device('cuda:3' if torch.cuda.is_available() else 'cpu')):
-    """
+    """\
     Training graph attention auto-encoder.
 
     Parameters
     ----------
-    train_adata
-        trains
     adata
         AnnData object of scanpy package.
     hidden_dims
@@ -86,7 +79,6 @@ def train_STAGATE(adata, hidden_dims=[512, 30], n_epochs=500, lr=0.001, key_adde
     for epoch in tqdm(range(1, n_epochs+1)):
         model.train()
         optimizer.zero_grad()
-        total_loss =0
         """
         z, out = model(data.x, data.edge_index)
         loss = F.mse_loss(data.x, out) #F.nll_loss(out[data.train_mask], data.y[data.train_mask])
@@ -96,24 +88,19 @@ def train_STAGATE(adata, hidden_dims=[512, 30], n_epochs=500, lr=0.001, key_adde
         optimizer.step()
         """
         for [t_pre, t_post] in train_adata:
-            t_post.X = sp.csr_matrix(t_post.X).astype(np.int16)
-            t_pre.X = sp.csr_matrix(t_pre.X).astype(np.int16)
-            t_post = Transfer_pytorch_Data(t_post)
-            t_post = t_post.to(device)
-            t_pre = Transfer_pytorch_Data(t_pre)
-            t_pre = t_pre.to(device)
-            #x_post = to_dense_tensor(t_post.X, device)
-            #x_pre = to_dense_tensor(t_pre.X, device)
+            x_post = torch.tensor(t_post.X, dtype=torch.float32, device=device)
+            x_pre = torch.tensor(t_pre.X, dtype=torch.float32, device=device)
+            edge_index = t_post.edge_index
 
-            _, out = model(t_post.x, t_post.edge_index)
-            loss = F.mse_loss(t_pre.x, out)  # Minimize reconstruction loss
+            _, out = model(x_post, edge_index)
+            loss = F.mse_loss(x_pre, out)  # Minimize reconstruction loss
             total_loss += loss
 
             loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clipping)
         optimizer.step()
 
-        if epoch % 100 == 0:
+        if epoch % 10 == 0:
             print(f"Epoch {epoch}: Training Loss: {total_loss.item()}")
     
     model.eval()
